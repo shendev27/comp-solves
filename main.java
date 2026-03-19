@@ -1,4 +1,4 @@
-public import java.util.Scanner;
+import java.util.Scanner;
 
 public class main{
     public static void main(String[] args) {
@@ -9,6 +9,4 @@ public class main{
             }
         }
     }
-} {
-    
-}
+} 
