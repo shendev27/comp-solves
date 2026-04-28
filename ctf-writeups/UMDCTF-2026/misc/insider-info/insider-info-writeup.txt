@@ -1,0 +1,190 @@
+================================================================
+UMDCTF 2026 -- insider-info Writeup
+================================================================
+
+Category: Networking / DNS
+Flag: UMDCTF{5Ur31Y_N0_0N3_W111_N071C3_MY_1N51D3r_7r4D1N6}
+
+----------------------------------------------------------------
+CHALLENGE DESCRIPTION
+----------------------------------------------------------------
+
+"What better way to hide inside info on the Internet?"
+nc challs.umdctf.io 32323
+
+----------------------------------------------------------------
+UNDERSTANDING THE SERVER
+----------------------------------------------------------------
+
+The server spins up a custom DNS resolver and gives you exactly
+2 rounds of interaction. Each round accepts a length-prefixed
+raw DNS UDP packet over TCP (2-byte big-endian length followed
+by the packet body), forwards it to the local DNS server, and
+returns the response in the same format.
+
+The DNS resolver behaves as follows:
+
+  - {index}.inside.info (TXT) -> returns secret[index],
+    a single character
+  - {subdomain}.inside.info (TXT) -> returns the flag,
+    but only if the subdomain matches exactly
+
+The secret is generated as 819 random ASCII letters:
+
+    k = 819
+    secret = random.choices(string.ascii_letters, k=k)
+    subdomain = '.'.join(
+        [''.join(secret[i:i+63]) for i in range(0, k-63+1, 63)]
+    )
+
+This produces 13 labels of 63 characters each joined by dots,
+far exceeding DNS's 253-character total name length limit, but
+valid at the wire level since each individual label is exactly
+63 bytes (the per-label maximum).
+
+----------------------------------------------------------------
+THE ATTACK
+----------------------------------------------------------------
+
+Round 1: Reconstruct the Secret
+--------------------------------
+Since the server exposes each character individually via
+{index}.inside.info, we can reconstruct all 819 characters by
+querying indices 0-818. We pack all 819 questions into a single
+DNS packet with multiple questions, staying within our 2-round
+budget.
+
+We use dnslib to build the query and parse the response, with
+a recv_exact() loop to handle TCP's fragmented delivery:
+
+    q = dnslib.DNSRecord()
+    for i in range(819):
+        q.add_question(
+            dnslib.DNSQuestion(f"{i}.inside.info", dnslib.QTYPE.TXT)
+        )
+
+The response contains 819 TXT answers. We key each character
+by parsing the index from the rname:
+
+    secret = [''] * 819
+    for rr in reply.rr:
+        idx = int(str(rr.rname).split('.')[0])
+        secret[idx] = str(rr.rdata).strip('"')
+
+Round 2: Query the Flag
+------------------------
+Now we reconstruct the subdomain and query
+{subdomain}.inside.info for the flag. The problem: dnslib
+enforces DNS's 253-character total name length limit at packet
+encoding time, and our name is 13 x 63 = 819 characters of
+labels alone, far over the limit.
+
+The solution is to build the DNS wire-format packet manually,
+bypassing dnslib entirely for this step:
+
+    def encode_name_raw(labels):
+        encoded = b""
+        for label in labels:
+            b = label.encode()
+            encoded += bytes([len(b)]) + b
+        encoded += b'\x00'
+        return encoded
+
+    def build_txt_query(labels):
+        header = b'\xab\xcd\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00'
+        qname = encode_name_raw(labels)
+        return header + qname + b'\x00\x10\x00\x01'
+
+We pass the 13 secret chunks plus 'inside' and 'info' as
+labels, producing a valid wire-format DNS query that the server
+happily accepts.
+
+----------------------------------------------------------------
+FULL EXPLOIT
+----------------------------------------------------------------
+
+import socket
+import dnslib
+
+HOST, PORT = "challs.umdctf.io", 32323
+
+def recv_exact(sock, n):
+    data = b""
+    while len(data) < n:
+        chunk = sock.recv(n - len(data))
+        if not chunk:
+            raise ConnectionError("Connection closed early")
+        data += chunk
+    return data
+
+def send_recv(sock, dns_packet_bytes):
+    data = len(dns_packet_bytes).to_bytes(2) + dns_packet_bytes
+    sock.sendall(data)
+    length = int.from_bytes(recv_exact(sock, 2))
+    return recv_exact(sock, length)
+
+def encode_name_raw(labels):
+    encoded = b""
+    for label in labels:
+        b = label.encode()
+        encoded += bytes([len(b)]) + b
+    encoded += b'\x00'
+    return encoded
+
+def build_txt_query(labels):
+    header = b'\xab\xcd\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00'
+    qname = encode_name_raw(labels)
+    return header + qname + b'\x00\x10\x00\x01'
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.connect((HOST, PORT))
+
+    q = dnslib.DNSRecord()
+    for i in range(819):
+        q.add_question(
+            dnslib.DNSQuestion(f"{i}.inside.info", dnslib.QTYPE.TXT)
+        )
+
+    response_bytes = send_recv(s, q.pack())
+    reply = dnslib.DNSRecord.parse(response_bytes)
+
+    secret = [''] * 819
+    for rr in reply.rr:
+        idx = int(str(rr.rname).split('.')[0])
+        secret[idx] = str(rr.rdata).strip('"')
+
+    print(f"Reconstructed {sum(1 for c in secret if c)} / 819 chars")
+
+    chunks = [''.join(secret[i:i+63]) for i in range(0, 819-63+1, 63)]
+    labels = chunks + ['inside', 'info']
+
+    raw_query = build_txt_query(labels)
+    response2_bytes = send_recv(s, raw_query)
+    reply2 = dnslib.DNSRecord.parse(response2_bytes)
+
+    for rr in reply2.rr:
+        print("FLAG:", rr.rdata)
+
+----------------------------------------------------------------
+KEY TAKEAWAYS
+----------------------------------------------------------------
+
+DNS as a covert channel: the challenge hides a secret
+character-by-character inside DNS TXT responses, requiring full
+reconstruction before the flag is accessible.
+
+Multi-question DNS packets: a single DNS packet can carry
+hundreds of questions, letting us retrieve all 819 characters
+in one round.
+
+DNS wire format vs library constraints: dnslib correctly
+enforces the RFC 1035 253-character name limit, but the server
+operates on raw wire format where the limit does not apply.
+When a library gets in the way, go lower and build the bytes
+yourself.
+
+TCP framing: DNS over TCP is length-prefixed. A single recv()
+call is not guaranteed to return all bytes, so recv_exact() is
+essential.
+
+================================================================

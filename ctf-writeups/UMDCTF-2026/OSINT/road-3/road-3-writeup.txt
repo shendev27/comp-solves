@@ -1,0 +1,120 @@
+﻿================================================================
+UMDCTF 2026 -- Road OSINT Writeup
+================================================================
+
+Flag: UMDCTF{Hanna, WY}
+
+----------------------------------------------------------------
+CHALLENGE
+----------------------------------------------------------------
+
+We were given a screenshot from a live traffic webcam and had
+to identify the nearest town.
+
+----------------------------------------------------------------
+SOLUTION
+----------------------------------------------------------------
+
+Step 1: Analyze the Image
+--------------------------
+Extract geographic clues from the image:
+
+  - Road type: Two-lane paved highway with a solid yellow
+    centerline and white fog lines -- a rural state route,
+    not an interstate
+
+  - Terrain: Sparse sagebrush, dry grasses, tan/sandy soil
+    -- semi-arid high plains or high-altitude desert
+
+  - Topography: Rolling hills with a road cut through an
+    embankment on the right side
+
+  - Wind turbines: Visible on the ridge to the right,
+    indicating a wind farm nearby
+
+  - Water: A lake or reservoir faintly visible on the far
+    left horizon
+
+  - Camera shadow: A pole-mounted camera shadow in the
+    foreground confirms this is a DOT traffic webcam feed
+
+  - Weather: Heavy stratocumulus clouds over an open
+    landscape typical of the US Mountain West
+
+These clues point strongly to Wyoming, specifically the
+corridor near wind farms and a reservoir.
+
+Step 2: Reverse Image Search
+-----------------------------
+TinEye returned no results. Google Lens is worth trying
+but may also not hit directly. Move on to manual OSINT.
+
+Step 3: Identify the Road
+--------------------------
+The combination of:
+
+  - Wind turbines on a ridge
+  - A lake/reservoir on the left horizon
+  - Two-lane rural highway cutting through rolling
+    sagebrush hills
+
+...strongly suggests WY-487, which runs through the
+Medicine Bow wind farm corridor and passes near
+Seminoe Reservoir.
+
+Step 4: Wyoming DOT Camera Portal
+-----------------------------------
+Navigate to the WYDOT 511 camera portal:
+
+  https://wyoroad.info/Highway/webcameras/all
+    ?route=NonInterstateCameras
+
+Or go directly to cameras by route:
+
+  https://wyoroad.info/pls/Browse/WRR.CameraRoutesQuery
+
+Select WY-487. There are three camera locations on
+this route:
+
+  Camera                    Milepost
+  ------------------------  --------
+  Medicine Bow              0.60
+  Shirley Rim               37.00
+  WYO 487 / WYO 77 Jct     46.03
+
+Step 5: Match the Camera
+-------------------------
+Clicking through the thumbnails, the camera at
+WYO 487 Shirley Rim - West matches the screenshot exactly:
+
+  - Same hill cut on the right
+  - Same open basin to the left
+  - Same road geometry and signage placement
+  - Wind turbines visible on the ridge
+
+Step 6: Find the Nearest Town
+------------------------------
+Milepost 37 on WY-487 at Shirley Rim -- the nearest
+town is Hanna, WY.
+
+----------------------------------------------------------------
+FLAG
+----------------------------------------------------------------
+
+UMDCTF{Hanna, WY}
+
+----------------------------------------------------------------
+KEY TAKEAWAYS
+----------------------------------------------------------------
+
+  - DOT camera portals are a goldmine for traffic cam OSINT
+    -- most US states have public feeds
+
+  - Wind turbines + water body were the two most distinctive
+    geographic identifiers
+
+  - When reverse image search fails, go manual: identify the
+    state -> find the DOT camera portal -> filter by likely
+    routes
+
+================================================================
